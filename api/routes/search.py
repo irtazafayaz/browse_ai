@@ -1,4 +1,8 @@
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
+
+from api.dependencies import get_embedder, get_qdrant
+from vectorizer.embedder import Embedder
+from db.qdrant import Qdrant
 from vectorizer.search import search
 
 router = APIRouter()
@@ -9,6 +13,8 @@ def search_products(
     q: str = Query(..., description="Natural language search query"),
     top_k: int = Query(20, ge=1, le=100),
     brand: str = Query(None),
+    embedder: Embedder = Depends(get_embedder),
+    qdrant: Qdrant = Depends(get_qdrant),
 ):
-    results = search(query=q, top_k=top_k, brand=brand)
+    results = search(query=q, embedder=embedder, qdrant=qdrant, top_k=top_k, brand=brand)
     return {"results": results, "total": len(results)}

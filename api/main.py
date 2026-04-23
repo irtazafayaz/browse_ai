@@ -1,14 +1,24 @@
-"""
-Browse AI — FastAPI server.
-browse-ai-backend calls this instead of BrowseBy API.
-
-Run:
-    uvicorn api.main:app --reload --port 8001
-"""
+import logging
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
+
+from api.dependencies import get_embedder, get_qdrant
 from api.routes.search import router as search_router
 
-app = FastAPI(title="Browse AI", version="1.0.0")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    get_embedder()
+    get_qdrant()
+    yield
+
+
+app = FastAPI(title="Browse AI", version="1.0.0", lifespan=lifespan)
 
 app.include_router(search_router, prefix="/api/v1")
 
