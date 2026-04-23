@@ -1,0 +1,9 @@
+fastapi==0.115.0
+uvicorn==0.30.6
+pymongo==4.10.1
+certifi
+requests==2.32.5
+beautifulsoup4==4.12.3
+sentence-transformers==3.2.1
+numpy==1.26.4
+python-dotenv==1.0.1
