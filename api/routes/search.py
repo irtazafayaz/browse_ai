@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, Query
+from pymongo.collection import Collection
 
-from api.dependencies import get_embedder, get_qdrant
+from api.dependencies import get_embedder, get_qdrant, get_collection
 from vectorizer.embedder import Embedder
 from db.qdrant import Qdrant
 from vectorizer.search import search
@@ -15,6 +16,7 @@ def search_products(
     brand: str = Query(None),
     embedder: Embedder = Depends(get_embedder),
     qdrant: Qdrant = Depends(get_qdrant),
+    col: Collection = Depends(get_collection),
 ):
-    results = search(query=q, embedder=embedder, qdrant=qdrant, top_k=top_k, brand=brand)
+    results = search(query=q, embedder=embedder, qdrant=qdrant, col=col, top_k=top_k, brand=brand)
     return {"results": results, "total": len(results)}
