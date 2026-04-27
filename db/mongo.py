@@ -1,6 +1,5 @@
 import logging
 import os
-import certifi
 from pymongo import MongoClient, TEXT
 from pymongo.collection import Collection
 
@@ -13,7 +12,7 @@ def get_client() -> MongoClient:
     global _client
     if _client is None:
         uri = os.environ.get("MONGO_URI", "mongodb://localhost:27017")
-        _client = MongoClient(uri, tls=True, tlsCAFile=certifi.where(), tlsAllowInvalidCertificates=True)
+        _client = MongoClient(uri)
     return _client
 
 
