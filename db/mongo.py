@@ -13,7 +13,7 @@ def get_client() -> MongoClient:
     global _client
     if _client is None:
         uri = os.environ.get("MONGO_URI", "mongodb://localhost:27017")
-        _client = MongoClient(uri, tls=True, tlsCAFile=certifi.where())
+        _client = MongoClient(uri, tls=True, tlsCAFile=certifi.where(), tlsAllowInvalidCertificates=True)
     return _client
 
 
