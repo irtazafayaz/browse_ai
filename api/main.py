@@ -9,9 +9,12 @@ from api.routes.search import router as search_router
 from api.routes.status import router as status_router
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=os.environ.get("LOG_LEVEL", "INFO").upper(),
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
 )
+# The httpx logger prints every Qdrant HTTP call — noise. Keep our own
+# search diagnostics readable by raising its threshold.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 logger = logging.getLogger(__name__)
