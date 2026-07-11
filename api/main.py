@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.dependencies import get_embedder, get_clip_embedder, get_qdrant, get_collection
+from api.dependencies import get_embedder, get_clip_embedder, get_reranker, get_qdrant, get_collection
 from api.routes.search import router as search_router
 from api.routes.status import router as status_router
 
@@ -25,6 +25,7 @@ async def lifespan(app: FastAPI):
     # Warm heavy singletons + ensure Mongo indexes once, before serving traffic.
     get_embedder()
     get_clip_embedder()
+    get_reranker()
     get_collection()
 
     # Validate/create the Qdrant collection at startup so a schema mismatch

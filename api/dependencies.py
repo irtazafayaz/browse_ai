@@ -5,6 +5,7 @@ from pymongo.collection import Collection
 
 from vectorizer.embedder import Embedder
 from vectorizer.clip_embedder import ClipEmbedder
+from vectorizer.reranker import Reranker
 from db.qdrant import Qdrant
 from db.mongo import get_products_col
 
@@ -19,6 +20,11 @@ def get_embedder() -> Embedder:
 @lru_cache
 def get_clip_embedder() -> ClipEmbedder:
     return ClipEmbedder()
+
+
+@lru_cache
+def get_reranker() -> Reranker:
+    return Reranker()
 
 
 @lru_cache

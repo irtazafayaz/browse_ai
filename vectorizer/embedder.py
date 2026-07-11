@@ -4,9 +4,12 @@ from sentence_transformers import SentenceTransformer
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL_NAME = "all-MiniLM-L6-v2"
+# bge-small-en-v1.5: stronger retrieval than MiniLM, still free/local, same 384-dim.
+# bge expects a short instruction on the QUERY side only (not on indexed passages).
+DEFAULT_MODEL_NAME = "BAAI/bge-small-en-v1.5"
 VECTOR_DIMENSION = 384
 DEFAULT_BATCH_SIZE = 64
+QUERY_INSTRUCTION = "Represent this sentence for searching relevant passages: "
 
 
 class Embedder:
@@ -19,7 +22,12 @@ class Embedder:
         logger.info("Model ready. dimension=%d", VECTOR_DIMENSION)
 
     def embed_one(self, text: str) -> list[float]:
+        """Passage-side single embed (indexing)."""
         return self.embed([text])[0]
+
+    def embed_query(self, text: str) -> list[float]:
+        """Query-side embed — prepends the bge retrieval instruction."""
+        return self.embed([QUERY_INSTRUCTION + text])[0]
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         if not texts:

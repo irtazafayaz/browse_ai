@@ -79,7 +79,7 @@ class Qdrant:
         )
 
         # Index the fields we actually filter on.
-        for field in ["brand", "category", "available"]:
+        for field in ["brand", "category", "available", "colors", "gender", "product_type"]:
             self._client.create_payload_index(
                 collection_name=self.collection_name,
                 field_name=field,

@@ -5,9 +5,10 @@ from fastapi import APIRouter, Depends, Query, File, UploadFile, HTTPException
 from pydantic import BaseModel, ConfigDict
 from pymongo.collection import Collection
 
-from api.dependencies import get_embedder, get_clip_embedder, get_qdrant, get_collection
+from api.dependencies import get_embedder, get_clip_embedder, get_reranker, get_qdrant, get_collection
 from vectorizer.embedder import Embedder
 from vectorizer.clip_embedder import ClipEmbedder
+from vectorizer.reranker import Reranker
 from db.qdrant import Qdrant
 from vectorizer.search import search, image_search, text_to_image_search
 
@@ -32,6 +33,7 @@ class ProductHit(BaseModel):
 class SearchResponse(BaseModel):
     results: List[ProductHit]
     total: int
+    debug: Optional[dict] = None  # populated only when ?debug=true
 
 
 def _clean_query(q: str) -> str:
@@ -58,17 +60,23 @@ def search_products(
     q: str = Query(..., description="Natural language search query"),
     top_k: int = Query(20, ge=1, le=100),
     brand: Optional[str] = Query(None),
+    gender: Optional[str] = Query(None, description="Filter/boost by gender: women | men | kids"),
+    debug: bool = Query(False, description="Include retrieval diagnostics (timings, parsed attrs, rerank scores)"),
     embedder: Embedder = Depends(get_embedder),
     qdrant: Qdrant = Depends(get_qdrant),
     col: Collection = Depends(get_collection),
+    reranker: Reranker = Depends(get_reranker),
 ):
-    """Hybrid text search (semantic MiniLM + keyword, RRF-merged)."""
+    """Hybrid search: bge semantic + keyword, RRF-merged, cross-encoder re-ranked
+    with color/gender attribute boosting."""
     q = _clean_query(q)
+    dbg: Optional[dict] = {} if debug else None
     results = _guard(
-        lambda: search(query=q, embedder=embedder, qdrant=qdrant, col=col, top_k=top_k, brand=brand),
+        lambda: search(query=q, embedder=embedder, qdrant=qdrant, col=col, top_k=top_k,
+                       brand=brand, debug=dbg, reranker=reranker, gender=gender),
         "Text search",
     )
-    return {"results": results, "total": len(results)}
+    return {"results": results, "total": len(results), "debug": dbg}
 
 
 @router.get("/search/visual", response_model=SearchResponse, tags=["search"])

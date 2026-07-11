@@ -9,6 +9,7 @@ from qdrant_client.models import PointStruct
 
 from .embedder import Embedder
 from .clip_embedder import ClipEmbedder
+from .attributes import enrichment_text, structured_attributes
 from db.qdrant import Qdrant, PAYLOAD_SCHEMA, TEXT_VECTOR, IMAGE_VECTOR
 
 logger = logging.getLogger(__name__)
@@ -35,6 +36,13 @@ def _build_payload(product: dict) -> dict:
     elif not isinstance(tags, list):
         payload["tags"] = []
 
+    # Structured, filterable/boostable attributes.
+    attrs = structured_attributes(product)
+    payload["colors"] = attrs["colors"]
+    payload["product_type"] = attrs["product_type"]
+    if attrs["gender"]:
+        payload["gender"] = attrs["gender"]
+
     return payload
 
 
@@ -44,6 +52,9 @@ def _build_text(product: dict) -> Optional[str]:
         product.get("brand") or "",
         product.get("category") or "",
         product.get("description") or "",
+        # Clean extracted attributes (color/gender/style) — puts color into the
+        # vector even when it only appears in noisy tags.
+        enrichment_text(product),
     ]
     text = " ".join(p.strip() for p in parts if p.strip())
     return text if text else None
