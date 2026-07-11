@@ -5,6 +5,8 @@ certifi
 requests==2.32.5
 beautifulsoup4==4.12.3
 sentence-transformers==3.2.1
+Pillow==10.4.0
+python-multipart==0.0.12
 numpy==1.26.4
 python-dotenv==1.0.1
 motor==3.6.0

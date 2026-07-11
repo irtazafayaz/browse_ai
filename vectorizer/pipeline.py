@@ -1,17 +1,21 @@
 import logging
+import os
 import time
 import hashlib
+from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 import motor.motor_asyncio
 from qdrant_client.models import PointStruct
 
 from .embedder import Embedder
-from db.qdrant import Qdrant, PAYLOAD_SCHEMA
+from .clip_embedder import ClipEmbedder
+from db.qdrant import Qdrant, PAYLOAD_SCHEMA, TEXT_VECTOR, IMAGE_VECTOR
 
 logger = logging.getLogger(__name__)
 
 BATCH_SIZE = 500
 EMBED_BATCH = 64
+IMAGE_DOWNLOAD_WORKERS = int(os.environ.get("IMAGE_DOWNLOAD_WORKERS", "16"))
 
 
 def _make_point_id(mongo_id: str) -> int:
@@ -53,14 +57,16 @@ class VectorizationPipeline:
         mongo_uri: str,
         mongo_db: str,
         mongo_collection: str,
+        clip_embedder: Optional[ClipEmbedder] = None,
     ):
         self.embedder = embedder
+        self.clip_embedder = clip_embedder
         self.qdrant = qdrant
         self.mongo_uri = mongo_uri
         self.mongo_db = mongo_db
         self.mongo_collection_name = mongo_collection
 
-    async def run(self):
+    async def run(self, limit: Optional[int] = None):
         start = time.time()
 
         self.qdrant.ensure_collection()
@@ -72,7 +78,10 @@ class VectorizationPipeline:
         collection = client[self.mongo_db][self.mongo_collection_name]
 
         total_docs = await collection.count_documents({})
-        logger.info("Total products in MongoDB: %d", total_docs)
+        if limit:
+            total_docs = min(total_docs, limit)
+            logger.info("LIMIT active: indexing only %d products", total_docs)
+        logger.info("Total products to index: %d", total_docs)
         logger.info("Batch size: %d | Embed batch: %d", BATCH_SIZE, EMBED_BATCH)
         logger.info("Qdrant collection: %s", self.qdrant.collection_name)
         logger.info("Starting vectorization...")
@@ -82,7 +91,10 @@ class VectorizationPipeline:
         batch_num = 0
         batch_docs: list[dict] = []
 
-        async for doc in collection.find({}, batch_size=BATCH_SIZE):
+        cursor = collection.find({}, batch_size=BATCH_SIZE)
+        if limit:
+            cursor = cursor.limit(limit)
+        async for doc in cursor:
             batch_docs.append(doc)
 
             if len(batch_docs) < BATCH_SIZE:
@@ -134,16 +146,44 @@ class VectorizationPipeline:
             return 0, skipped
 
         texts = [text for _, text in valid_docs]
-        vectors = self.embedder.embed(texts)
+        text_vectors = self.embedder.embed(texts)
+
+        # CLIP image vectors (optional). Download images concurrently, then encode
+        # only those that loaded. Products without a usable image just skip the
+        # "image" named vector — their "text" vector is still stored.
+        image_vectors: list[Optional[list[float]]] = [None] * len(valid_docs)
+        if self.clip_embedder is not None:
+            image_vectors = self._embed_images(valid_docs)
 
         points = []
         for i, (doc, _) in enumerate(valid_docs):
             mongo_id = str(doc.get("_id", ""))
+            named_vectors = {TEXT_VECTOR: text_vectors[i]}
+            if image_vectors[i] is not None:
+                named_vectors[IMAGE_VECTOR] = image_vectors[i]
             points.append(PointStruct(
                 id=_make_point_id(mongo_id),
-                vector=vectors[i],
+                vector=named_vectors,
                 payload={**_build_payload(doc), "mongo_id": mongo_id},
             ))
 
         upserted = self.qdrant.upsert_batch(points)
         return upserted, skipped
+
+    def _embed_images(self, valid_docs: list[tuple[dict, str]]) -> list[Optional[list[float]]]:
+        urls = [doc.get("imageUrl") or "" for doc, _ in valid_docs]
+
+        with ThreadPoolExecutor(max_workers=IMAGE_DOWNLOAD_WORKERS) as pool:
+            images = list(pool.map(self.clip_embedder.load_image_url, urls))
+
+        idx_with_img = [i for i, img in enumerate(images) if img is not None]
+        result: list[Optional[list[float]]] = [None] * len(valid_docs)
+        if not idx_with_img:
+            logger.warning("Batch produced no loadable images (%d urls)", len(urls))
+            return result
+
+        vectors = self.clip_embedder.embed_images([images[i] for i in idx_with_img])
+        for slot, vec in zip(idx_with_img, vectors):
+            result[slot] = vec
+        logger.info("Encoded %d/%d product images", len(idx_with_img), len(valid_docs))
+        return result
