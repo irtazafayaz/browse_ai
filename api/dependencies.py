@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 from pymongo.collection import Collection
 
 from vectorizer.embedder import Embedder
+from vectorizer.clip_embedder import ClipEmbedder
 from db.qdrant import Qdrant
 from db.mongo import get_products_col
 
@@ -16,6 +17,11 @@ def get_embedder() -> Embedder:
 
 
 @lru_cache
+def get_clip_embedder() -> ClipEmbedder:
+    return ClipEmbedder()
+
+
+@lru_cache
 def get_qdrant() -> Qdrant:
     return Qdrant(
         url=os.environ["QDRANT_URL"],
@@ -23,5 +29,6 @@ def get_qdrant() -> Qdrant:
     )
 
 
+@lru_cache
 def get_collection() -> Collection:
     return get_products_col()

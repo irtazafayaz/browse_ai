@@ -1,11 +1,12 @@
 import logging
 import os
-from pymongo import MongoClient, TEXT
+from pymongo import MongoClient, TEXT, ASCENDING
 from pymongo.collection import Collection
 
 logger = logging.getLogger(__name__)
 
 _client: MongoClient = None
+_indexes_ensured = False
 
 
 def get_client() -> MongoClient:
@@ -23,13 +24,21 @@ def get_db():
 
 def get_products_col() -> Collection:
     col = get_db()["products"]
-    _ensure_text_index(col)
+    _ensure_indexes(col)
     return col
 
 
-def _ensure_text_index(col: Collection):
+def _ensure_indexes(col: Collection):
+    # Idempotent, but a list_indexes() round-trip is a per-call network hop —
+    # so only ever do it once per process (guarded by a module flag).
+    global _indexes_ensured
+    if _indexes_ensured:
+        return
+
     existing = [list(idx["key"].keys()) for idx in col.list_indexes()]
     has_text = any("_fts" in keys for keys in existing)
+    has_brand = any(keys == ["brand"] for keys in existing)
+
     if not has_text:
         logger.info("Creating text index on products collection")
         col.create_index(
@@ -37,6 +46,12 @@ def _ensure_text_index(col: Collection):
             default_language="english",
         )
         logger.info("Text index created")
+
+    if not has_brand:
+        logger.info("Creating brand index on products collection")
+        col.create_index([("brand", ASCENDING)])
+
+    _indexes_ensured = True
 
 
 def keyword_search(col: Collection, query: str, top_k: int = 100, brand: str = None) -> list[dict]:
