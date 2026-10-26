@@ -61,8 +61,10 @@ def keyword_search(col: Collection, query: str, top_k: int = 100, brand: str = N
 
     cursor = col.find(
         filter_,
+        # description feeds the reranker + colour extraction for keyword-only hits.
         {"score": {"$meta": "textScore"}, "_id": 1, "name": 1, "brand": 1,
-         "category": 1, "price": 1, "imageUrl": 1, "productUrl": 1, "tags": 1},
+         "category": 1, "price": 1, "imageUrl": 1, "productUrl": 1, "tags": 1,
+         "description": 1},
     ).sort([("score", {"$meta": "textScore"})]).limit(top_k)
 
     return list(cursor)

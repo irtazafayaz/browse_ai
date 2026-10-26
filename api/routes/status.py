@@ -12,9 +12,10 @@ import time
 from fastapi import APIRouter, Response
 from fastapi.responses import HTMLResponse
 
-from api.dependencies import get_embedder, get_clip_embedder, get_qdrant
+from api.dependencies import get_embedder, get_clip_embedder, get_reranker, get_qdrant
 from db.mongo import get_db
 from db.qdrant import TEXT_VECTOR, IMAGE_VECTOR
+from vectorizer.device import DEVICE
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +76,12 @@ def _qdrant_status() -> dict:
         if named:
             out["vectors"] = {name: params.size for name, params in vectors.items()}
             out["image_search_ready"] = IMAGE_VECTOR in vectors and TEXT_VECTOR in vectors
+            # A collection indexed with different models is the one thing that
+            # fails silently at query time — surface it here.
+            want = {TEXT_VECTOR: qdrant.text_dimension, IMAGE_VECTOR: qdrant.image_dimension}
+            out["vectors_match_models"] = all(
+                size is None or out["vectors"].get(name) == size for name, size in want.items()
+            )
         else:
             out["vectors"] = {"(unnamed)": getattr(vectors, "size", None)}
             out["image_search_ready"] = False
@@ -84,10 +91,24 @@ def _qdrant_status() -> dict:
 def _models_status() -> dict:
     # cache_info().currsize > 0 means the singleton is already warmed —
     # read it WITHOUT forcing a (heavy) load.
-    return {
-        "text_embedder_loaded": get_embedder.cache_info().currsize > 0,
-        "clip_embedder_loaded": get_clip_embedder.cache_info().currsize > 0,
+    text_loaded = get_embedder.cache_info().currsize > 0
+    clip_loaded = get_clip_embedder.cache_info().currsize > 0
+    rerank_loaded = get_reranker.cache_info().currsize > 0
+    out = {
+        "device": DEVICE,
+        "text_embedder_loaded": text_loaded,
+        "clip_embedder_loaded": clip_loaded,
+        "reranker_loaded": rerank_loaded,
     }
+    if text_loaded:
+        e = get_embedder()
+        out["text_model"] = f"{e.model_name} ({e.vector_dimension}d)"
+    if clip_loaded:
+        c = get_clip_embedder()
+        out["image_model"] = f"{c.model_name} ({c.vector_dimension}d)"
+    if rerank_loaded:
+        out["rerank_model"] = get_reranker().model_name
+    return out
 
 
 @router.get("/status", tags=["system"])

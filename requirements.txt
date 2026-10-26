@@ -1,13 +1,25 @@
-fastapi==0.115.0
-uvicorn==0.30.6
-pymongo>=4.9,<4.10
+fastapi==0.162.0
+uvicorn==0.54.0
+pymongo==4.19.0
+motor==3.7.1
 certifi
-requests==2.32.5
-beautifulsoup4==4.12.3
-sentence-transformers==3.2.1
-Pillow==10.4.0
-python-multipart==0.0.12
-numpy==1.26.4
-python-dotenv==1.0.1
-motor==3.6.0
-qdrant-client==1.12.1
+requests==2.34.2
+beautifulsoup4==4.15.0
+python-dotenv==1.2.4
+python-multipart==0.0.32
+numpy==2.5.4
+Pillow==13.0.0
+qdrant-client==1.20.0
+
+# --- ML stack (torch is installed separately in the Dockerfile: CPU wheel) ---
+torch==2.14.1
+torchvision==0.29.1
+transformers==5.20.2
+sentence-transformers==6.2.0
+open_clip_torch==3.3.0
+timm==1.0.30
+sentencepiece==0.2.2
+protobuf==7.36.2
+
+# --- bench/ only (BM25 stand-in for the Mongo text index) ---
+rank_bm25==0.2.2

@@ -19,7 +19,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-async def main(limit=None):
+async def main(limit=None, recreate=False):
     mongo_uri = os.environ["MONGO_URI"]
     # Match db/mongo.py + .env.example (MONGO_DB kept as a fallback for older envs).
     mongo_db = os.environ.get("MONGO_DB_NAME") or os.environ.get("MONGO_DB", "browse_ai")
@@ -29,7 +29,12 @@ async def main(limit=None):
 
     embedder = Embedder()
     clip_embedder = ClipEmbedder()
-    qdrant = Qdrant(url=qdrant_url, api_key=qdrant_api_key)
+    # Collection dimensions follow the loaded models; a model swap -> --recreate.
+    qdrant = Qdrant(
+        url=qdrant_url, api_key=qdrant_api_key,
+        text_dimension=embedder.vector_dimension,
+        image_dimension=clip_embedder.vector_dimension,
+    )
 
     pipeline = VectorizationPipeline(
         embedder=embedder,
@@ -40,11 +45,13 @@ async def main(limit=None):
         clip_embedder=clip_embedder,
     )
 
-    await pipeline.run(limit=limit)
+    await pipeline.run(limit=limit, recreate=recreate)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--limit", type=int, default=None, help="Index only the first N products (quick test)")
+    parser.add_argument("--recreate", action="store_true",
+                        help="Drop and rebuild the Qdrant collection (required after changing embedding models)")
     args = parser.parse_args()
-    asyncio.run(main(limit=args.limit))
+    asyncio.run(main(limit=args.limit, recreate=args.recreate))

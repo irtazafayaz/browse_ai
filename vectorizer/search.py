@@ -15,7 +15,12 @@ from db.mongo import keyword_search
 logger = logging.getLogger(__name__)
 
 RRF_K = 60
-RERANK_POOL = 50  # max candidates handed to the cross-encoder
+# Candidates per channel (semantic, keyword) and the merged pool handed to the
+# cross-encoder. Benchmarked on a 7.5k-product sample (bench/): P@10 climbs
+# monotonically with pool size — 50 -> 0.70, 80 -> 0.78, 100 -> 0.78 — while
+# rerank time grows linearly (~9 ms/pair on MPS), so 80 is the knee.
+CANDIDATES_PER_CHANNEL = 80
+RERANK_POOL = 80
 
 
 def _build_filter(brand: Optional[str] = None, apparel_only: bool = False) -> Optional[Filter]:
@@ -146,7 +151,7 @@ def search(
     logger.info("Hybrid search: '%s' top_k=%d brand=%s colors=%s gender=%s apparel_only=%s",
                 query, top_k, brand, q_colors, q_gender, apparel_only)
 
-    cand_k = max(top_k * 2, 30)
+    cand_k = max(CANDIDATES_PER_CHANNEL, top_k)
     filt = _build_filter(brand, apparel_only)
 
     t = time.perf_counter()
@@ -163,7 +168,7 @@ def search(
     overlap = len({d.get("productUrl") for d in semantic if d.get("productUrl")}
                   & {d.get("productUrl") for d in keyword if d.get("productUrl")})
 
-    pool_size = min(RERANK_POOL, max(top_k * 3, 20))
+    pool_size = max(RERANK_POOL, top_k)
     pool = _rrf_merge(semantic, keyword, pool_size)
 
     if reranker is not None and pool:

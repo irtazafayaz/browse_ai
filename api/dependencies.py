@@ -29,9 +29,14 @@ def get_reranker() -> Reranker:
 
 @lru_cache
 def get_qdrant() -> Qdrant:
+    # Dimensions come from the loaded models so ensure_collection() can detect a
+    # collection indexed with a different model and refuse to serve wrong-sized
+    # vectors silently.
     return Qdrant(
         url=os.environ["QDRANT_URL"],
         api_key=os.environ.get("QDRANT_API_KEY"),
+        text_dimension=get_embedder().vector_dimension,
+        image_dimension=get_clip_embedder().vector_dimension,
     )
 
 

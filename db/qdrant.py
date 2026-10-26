@@ -21,14 +21,17 @@ PAYLOAD_SCHEMA = {
     "imageUrl",
     "productUrl",
     "available",
+    "description",  # <=1200 chars (scraper cap); read by the reranker at query time
 }
 
-# Named vectors. "text" = MiniLM description embeddings (existing),
-# "image" = CLIP ViT-B/32 image embeddings (new). Both cosine.
+# Named vectors. "text" = bge text embeddings, "image" = CLIP/SigLIP image
+# embeddings. Both cosine. Dimensions are NOT fixed here — they come from the
+# loaded models (Embedder.vector_dimension / ClipEmbedder.vector_dimension) so
+# swapping a model cannot silently write wrong-sized vectors.
 TEXT_VECTOR = "text"
 IMAGE_VECTOR = "image"
-TEXT_DIMENSION = 384
-IMAGE_DIMENSION = 512
+
+FILTER_FIELDS = ["brand", "category", "available", "colors", "gender", "product_type"]
 
 
 class Qdrant:
@@ -37,8 +40,8 @@ class Qdrant:
         url: str,
         api_key: Optional[str] = None,
         collection_name: Optional[str] = None,
-        text_dimension: int = TEXT_DIMENSION,
-        image_dimension: int = IMAGE_DIMENSION,
+        text_dimension: Optional[int] = None,
+        image_dimension: Optional[int] = None,
     ):
         # Fall back to env so every call site (API, indexer, CLIs) shares one name.
         self.collection_name = collection_name or os.environ.get("QDRANT_COLLECTION_NAME", "products")
@@ -48,25 +51,46 @@ class Qdrant:
         self._client = QdrantClient(url=url, api_key=api_key, timeout=60, check_compatibility=False)
 
     def _vectors_config(self) -> dict:
+        if not self.text_dimension or not self.image_dimension:
+            raise ValueError("text_dimension and image_dimension are required to create a collection")
         return {
             TEXT_VECTOR: VectorParams(size=self.text_dimension, distance=Distance.COSINE),
             IMAGE_VECTOR: VectorParams(size=self.image_dimension, distance=Distance.COSINE),
         }
 
-    def ensure_collection(self):
+    def _existing_vectors(self) -> Optional[dict]:
+        """{name: size} for the live collection, or None if it doesn't exist."""
         existing = [c.name for c in self._client.get_collections().collections]
-        logger.info("Existing Qdrant collections: %s", existing)
+        if self.collection_name not in existing:
+            return None
+        vectors = self._client.get_collection(self.collection_name).config.params.vectors
+        if not isinstance(vectors, dict):
+            return {"(unnamed)": getattr(vectors, "size", None)}
+        return {name: params.size for name, params in vectors.items()}
 
-        if self.collection_name in existing:
-            info = self._client.get_collection(self.collection_name)
-            vectors = info.config.params.vectors
-            # A pre-existing single-vector (unnamed) collection is incompatible.
-            if not isinstance(vectors, dict) or TEXT_VECTOR not in vectors or IMAGE_VECTOR not in vectors:
+    def ensure_collection(self, recreate: bool = False):
+        live = self._existing_vectors()
+        logger.info("Qdrant collection '%s': %s", self.collection_name, live or "absent")
+
+        if live is not None and recreate:
+            logger.warning("Dropping collection '%s' (recreate=True)", self.collection_name)
+            self.delete_collection()
+            live = None
+
+        if live is not None:
+            # Same model family but a different size (e.g. bge-small -> bge-large)
+            # is the classic silent-breakage case — fail loudly with the fix.
+            want = {TEXT_VECTOR: self.text_dimension, IMAGE_VECTOR: self.image_dimension}
+            mismatch = {
+                name: (live.get(name), size) for name, size in want.items()
+                if size is not None and live.get(name) != size
+            }
+            if TEXT_VECTOR not in live or IMAGE_VECTOR not in live or mismatch:
                 raise ValueError(
-                    f"Collection '{self.collection_name}' exists without named vectors "
-                    f"'{TEXT_VECTOR}'/'{IMAGE_VECTOR}'. Recreate it (delete_collection) to enable image search."
+                    f"Collection '{self.collection_name}' has vectors {live}, but the loaded models need "
+                    f"{want}. Re-index with `python vectorize.py --recreate` (drops and rebuilds the collection)."
                 )
-            logger.info("Collection '%s' already exists with named vectors — reusing.", self.collection_name)
+            logger.info("Collection '%s' matches model dimensions — reusing.", self.collection_name)
             return
 
         logger.info(
@@ -79,7 +103,7 @@ class Qdrant:
         )
 
         # Index the fields we actually filter on.
-        for field in ["brand", "category", "available", "colors", "gender", "product_type"]:
+        for field in FILTER_FIELDS:
             self._client.create_payload_index(
                 collection_name=self.collection_name,
                 field_name=field,

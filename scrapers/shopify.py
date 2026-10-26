@@ -3,8 +3,12 @@ Generic Shopify scraper.
 All 10 brands use Shopify — this handles pagination and field mapping.
 Each brand scraper just sets brand_name, base_url, and source.
 """
+import re
 from typing import Optional
+from bs4 import BeautifulSoup
 from scrapers.base import BaseScraper
+
+MAX_DESCRIPTION_CHARS = 1200
 
 
 class ShopifyScraper(BaseScraper):
@@ -80,6 +84,18 @@ class ShopifyScraper(BaseScraper):
             "productUrl":    f"{self.base_url}/products/{handle}",
             "category":      p.get("product_type", ""),
             "tags":          tags,
-            "description":   "",
+            "description":   self._clean_description(p.get("body_html")),
             "source":        self.source,
         }
+
+    @staticmethod
+    def _clean_description(body_html: Optional[str]) -> str:
+        """Shopify body_html -> plain text. Brands put the facts that matter for
+        search here (Color, Fabric, Cut, Dupatta/Trouser included...) and nowhere
+        else, so this feeds the embedding text, the Mongo text index and the
+        reranker. Capped so a boilerplate care-guide can't swamp the vector."""
+        if not body_html:
+            return ""
+        text = BeautifulSoup(body_html, "html.parser").get_text(" ")
+        text = re.sub(r"\s+", " ", text).strip()
+        return text[:MAX_DESCRIPTION_CHARS]

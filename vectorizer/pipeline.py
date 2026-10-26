@@ -77,10 +77,10 @@ class VectorizationPipeline:
         self.mongo_db = mongo_db
         self.mongo_collection_name = mongo_collection
 
-    async def run(self, limit: Optional[int] = None):
+    async def run(self, limit: Optional[int] = None, recreate: bool = False):
         start = time.time()
 
-        self.qdrant.ensure_collection()
+        self.qdrant.ensure_collection(recreate=recreate)
 
         client = motor.motor_asyncio.AsyncIOMotorClient(
             self.mongo_uri,

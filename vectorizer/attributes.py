@@ -68,6 +68,28 @@ def extract_colors(text: str) -> list[str]:
     return sorted(found)
 
 
+# Most brands state the colour as a labelled field in the description
+# ("Color: Fuchsia Pink Shalwar Fabric: ..."). Only the few words right after
+# the label are trusted — the free text around it mentions other colours
+# ("paired with black culottes") that would poison the facet.
+_COLOR_FIELD = re.compile(r"\bcolou?r\s*[:\-–]\s*([^:]{1,40})", re.I)
+
+
+def color_field(description: str) -> str:
+    """The value of a 'Color:' field in a description, or ''."""
+    if not description:
+        return ""
+    m = _COLOR_FIELD.search(description)
+    return m.group(1) if m else ""
+
+
+def product_colors(product: dict) -> list[str]:
+    """Color families for a product: name + tags, plus the description's Color field."""
+    name = product.get("name") or ""
+    tags = " ".join(product.get("tags") or [])
+    return extract_colors(f"{name} {tags} {color_field(product.get('description') or '')}")
+
+
 def extract_gender(category: str = "", tags=None, name: str = "", url: str = "") -> Optional[str]:
     hay = " ".join([category or "", " ".join(tags or []), name or "", url or ""]).lower()
     if _GENDER_KIDS.search(hay):
@@ -96,7 +118,7 @@ def enrichment_text(product: dict) -> str:
     tagblob = " ".join(product.get("tags") or [])
     blob = f"{name} {tagblob} {product.get('category') or ''}"
 
-    colors = extract_colors(blob)
+    colors = product_colors(product)
     gender = extract_gender(product.get("category", ""), product.get("tags"), name, product.get("productUrl", ""))
     styles = _extract_styles(blob)
 
@@ -114,7 +136,7 @@ def structured_attributes(product: dict) -> dict:
     """Filterable fields to store in the Qdrant payload."""
     name = product.get("name") or ""
     return {
-        "colors": extract_colors(f"{name} {' '.join(product.get('tags') or [])}"),
+        "colors": product_colors(product),
         "gender": extract_gender(product.get("category", ""), product.get("tags"), name, product.get("productUrl", "")),
         "product_type": classify_type(product.get("category", ""), product.get("tags"), name),
     }
